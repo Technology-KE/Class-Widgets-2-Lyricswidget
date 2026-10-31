@@ -463,10 +463,9 @@ SettingsLayout {
         title: "显示播放进度条"
         description: "在歌词下方显示播放进度条；拿不到歌曲进度时会自动隐藏。"
 
-        ToggleButton {
-            text: checked ? qsTr("已启用") : qsTr("已关闭")
+        Switch {
             checked: root.showProgressValue
-            onClicked: root.showProgressValue = checked
+            onCheckedChanged: root.showProgressValue = checked
         }
     }
 
@@ -476,10 +475,9 @@ SettingsLayout {
         description: "默认关闭：只要没确认 SMTC 与歌词是同一首歌，就停用播放进度条、封面背景、" +
                      "以及逐字同步（改为按节奏估算），并释放封面等占用，只保留歌词自身能提供的效果。"
 
-        ToggleButton {
-            text: checked ? qsTr("已启用") : qsTr("已关闭")
+        Switch {
             checked: root.allowUnverifiedValue
-            onClicked: root.allowUnverifiedValue = checked
+            onCheckedChanged: root.allowUnverifiedValue = checked
         }
     }
 
@@ -489,10 +487,9 @@ SettingsLayout {
         description: "仅为动画效果：速度按上一句的节奏自适应估算，实际演唱可能比它提前或延后。" +
                      "关闭后当前歌词整行保持满亮度。"
 
-        ToggleButton {
-            text: checked ? qsTr("已启用") : qsTr("已关闭")
+        Switch {
             checked: root.karaokeValue
-            onClicked: root.karaokeValue = checked
+            onCheckedChanged: root.karaokeValue = checked
         }
     }
 
@@ -502,10 +499,9 @@ SettingsLayout {
         description: "只有歌词渠道真的推来歌词时才显示；SMTC 识别到的歌名、封面、播放状态都不会让组件弹出。" +
                      "歌曲暂停或停止、长时间没有新歌词后会自动收起。"
 
-        ToggleButton {
-            text: checked ? qsTr("已启用") : qsTr("已关闭")
+        Switch {
             checked: root.autoShowValue
-            onClicked: root.autoShowValue = checked
+            onCheckedChanged: root.autoShowValue = checked
         }
     }
 }
