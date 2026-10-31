@@ -770,11 +770,16 @@ Widget {
     // 一旦判定无词就整体隐藏，等传统歌词渠道真的推来歌词再恢复。
     Quick.Text {
         anchors.centerIn: parent
-        width: parent.width
+        // 固定宽度：主程序是按 contentArea 里内容的实际宽度算 implicitWidth 的。
+        // 等歌词阶段只有这个提示可见，若把 width 绑成 parent.width（= widget 宽 - 48）
+        // 就变成自引用，宽度会塌成很小 → 提示文字被挤成一字一行竖排。
+        // 这里固定成和 content 一样的 252（+ 左右 padding 24*2 = 300）。
+        width: 252
         visible: !root.hasLyrics && root.showable
         text: qsTr("等待音乐软件侧传输歌词...")
         horizontalAlignment: Quick.Text.AlignHCenter
-        wrapMode: Quick.Text.Wrap
+        wrapMode: Quick.Text.NoWrap
+        elide: Quick.Text.ElideRight
         color: root.hasBg ? root.fgColor : Theme.currentTheme.colors.textSecondaryColor
         font.pixelSize: 13
     }
