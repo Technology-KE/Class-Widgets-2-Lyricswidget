@@ -338,7 +338,11 @@ Widget {
         actualVisible = shouldShow
     }
 
-    width: actualVisible ? implicitWidth : 0
+    // 宽度不随显隐切 0：隐藏交给 visible，主程序通过 contentHidden 收合槽位。
+    // 之前隐藏时把宽度切成 0，恢复时再把宽度改回来，会让 FastBlur / OpacityMask
+    // 这类 shader 特效的纹理按 0 尺寸渲染，重新显示后背景错位、内容像被裁掉一截
+    // （点一下组件触发重排才恢复正常）。
+    width: implicitWidth
     visible: actualVisible
 
     SequentialAnimation {
@@ -396,16 +400,22 @@ Widget {
             }
             function syncPosition(animated) {
                 var y = targetY()
-                if (Math.abs(contentY - y) < 0.5)
-                    return
                 if (animated && root.switchAnimMs > 0) {
-                    posAnim.stop()
-                    posAnim.to = y
-                    posAnim.restart()
-                } else {
-                    posAnim.stop()
-                    contentY = y
+                    // 已经在滑就只更新终点、不重新起步：模型每次换行都会改动
+                    // contentHeight / currentIndex，如果每次都 restart，动画就会被
+                    // 反复拽回起点，看起来一顿一顿的（不连续）。
+                    if (posAnim.running) {
+                        if (Math.abs(posAnim.to - y) > 0.5)
+                            posAnim.to = y
+                    } else if (Math.abs(contentY - y) > 0.5) {
+                        posAnim.to = y
+                        posAnim.restart()
+                    }
+                    return
                 }
+                posAnim.stop()
+                if (Math.abs(contentY - y) > 0.5)
+                    contentY = y
             }
             property int lastIndex: -1
             NumberAnimation {
@@ -471,9 +481,11 @@ Widget {
                     height: cell.height
                     width: Math.max(cell.textW, 1)
                     scale: cell.isCur ? 1.0 : 0.9
+                    transformOrigin: Item.Center
 
+                    // 缩放动画与整列滑动同频同时长，三行才是一起动而不是各动各的
                     Behavior on scale {
-                        NumberAnimation { duration: 700; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: root.switchAnimMs; easing.type: Easing.OutCubic }
                     }
 
                     Row {
