@@ -15,7 +15,7 @@ SettingsLayout {
     property int subSizeValue: 10
     onSubSizeValueChanged: settings.sub_font_size = subSizeValue
 
-    // 配色方案：auto / light / dark / vivid / soft / tinted / theme / white / black / custom
+    // 配色方案：auto / light / dark / vivid / soft / tinted / accent / duo / theme / white / black / custom
     property string colorModeValue: "auto"
     onColorModeValueChanged: settings.lyric_color = colorModeValue
 
@@ -23,13 +23,25 @@ SettingsLayout {
     property string customColorValue: "#ffffff"
     onCustomColorValueChanged: settings.lyric_color_custom = customColorValue
 
-    // 封面背景
-    property bool showCoverValue: true
-    onShowCoverValueChanged: settings.show_cover = showCoverValue
+    // 背景样式：cover=封面模糊 / solid=纯色 / none=无背景
+    property string bgModeValue: "cover"
+    onBgModeValueChanged: settings.bg_mode = bgModeValue
 
-    // 背景透明度（%）
+    // 纯色背景颜色（#RRGGBB）
+    property string bgColorValue: "#1b1e26"
+    onBgColorValueChanged: settings.bg_color = bgColorValue
+
+    // 封面模糊强度（px）
+    property int bgBlurValue: 32
+    onBgBlurValueChanged: settings.bg_blur = bgBlurValue
+
+    // 背景不透明度（%）：100 = 原样，0 = 完全透明（只留歌词）
     property int bgOpacityValue: 100
     onBgOpacityValueChanged: settings.bg_opacity = bgOpacityValue
+
+    // 切行动画时长（ms）
+    property int switchAnimValue: 1500
+    onSwitchAnimValueChanged: settings.switch_anim_ms = switchAnimValue
 
     property bool showProgressValue: true
     onShowProgressValueChanged: settings.show_progress = showProgressValue
@@ -51,8 +63,11 @@ SettingsLayout {
         subSizeValue = settings.sub_font_size !== undefined ? settings.sub_font_size : 10
         colorModeValue = settings.lyric_color !== undefined ? settings.lyric_color : "auto"
         customColorValue = settings.lyric_color_custom !== undefined ? settings.lyric_color_custom : "#ffffff"
-        showCoverValue = settings.show_cover !== undefined ? settings.show_cover : true
+        bgModeValue = settings.bg_mode !== undefined ? settings.bg_mode : "cover"
+        bgColorValue = settings.bg_color !== undefined ? settings.bg_color : "#1b1e26"
+        bgBlurValue = settings.bg_blur !== undefined ? settings.bg_blur : 32
         bgOpacityValue = settings.bg_opacity !== undefined ? settings.bg_opacity : 100
+        switchAnimValue = settings.switch_anim_ms !== undefined ? settings.switch_anim_ms : 1500
         showProgressValue = settings.show_progress !== undefined ? settings.show_progress : true
         autoShowValue = settings.auto_show !== undefined ? settings.auto_show : true
         allowUnverifiedValue = settings.progress_unverified !== undefined ? settings.progress_unverified : false
@@ -61,18 +76,106 @@ SettingsLayout {
 
     SettingCard {
         Layout.fillWidth: true
-        title: "封面背景"
-        description: "从系统媒体会话（SMTC）读取当前歌曲的专辑封面，模糊后作为组件背景。"
+        title: "组件背景"
+        description: "背景样式可选封面模糊 / 纯色 / 无背景；下面的不透明度对这一整层背景生效，正常显示时一直有效。"
 
-        // SettingCard 只接受一个内容子项：两个控件必须包进同一个 ColumnLayout，
+        // SettingCard 只接受一个内容子项：多个控件必须包进同一个 ColumnLayout，
         // 否则第二个子项会顶掉第一个，表现为整张卡都调不动。
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 8
 
-            Switch {
-                checked: root.showCoverValue
-                onCheckedChanged: root.showCoverValue = checked
+            RowLayout {
+                spacing: 12
+                RadioButton {
+                    text: "封面模糊"
+                    checked: root.bgModeValue === "cover"
+                    onCheckedChanged: if (checked) root.bgModeValue = "cover"
+                }
+                RadioButton {
+                    text: "纯色"
+                    checked: root.bgModeValue === "solid"
+                    onCheckedChanged: if (checked) root.bgModeValue = "solid"
+                }
+                RadioButton {
+                    text: "无背景"
+                    checked: root.bgModeValue === "none"
+                    onCheckedChanged: if (checked) root.bgModeValue = "none"
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                visible: root.bgModeValue === "cover"
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("封面模糊强度")
+                }
+                Button {
+                    text: "−"
+                    implicitWidth: 36
+                    onClicked: bgBlurValue = Math.max(0, bgBlurValue - 4)
+                }
+                Text {
+                    Layout.preferredWidth: 56
+                    horizontalAlignment: Text.AlignHCenter
+                    text: bgBlurValue + " px"
+                }
+                Button {
+                    text: "+"
+                    implicitWidth: 36
+                    onClicked: bgBlurValue = Math.min(64, bgBlurValue + 4)
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                visible: root.bgModeValue === "solid"
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("背景颜色")
+                }
+                Rectangle {
+                    width: 28
+                    height: 28
+                    radius: 6
+                    border.width: 1
+                    border.color: "#888888"
+                    color: root.bgColorValue
+                }
+                TextField {
+                    id: bgColorField
+                    Layout.preferredWidth: 140
+                    placeholderText: "#RRGGBB"
+                    text: root.bgColorValue
+                    selectByMouse: true
+                    onEditingFinished: {
+                        var v = text.trim()
+                        if (v.charAt(0) !== "#")
+                            v = "#" + v
+                        root.bgColorValue = v
+                    }
+                }
+                Repeater {
+                    model: ["#1b1e26", "#000000", "#ffffff", "#2b1d2e", "#0f2231", "#1f2a1c"]
+                    delegate: Rectangle {
+                        width: 22
+                        height: 22
+                        radius: 4
+                        border.width: 1
+                        border.color: "#888888"
+                        color: modelData
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                root.bgColorValue = modelData
+                                bgColorField.text = modelData
+                            }
+                        }
+                    }
+                }
             }
 
             RowLayout {
@@ -80,7 +183,7 @@ SettingsLayout {
                 spacing: 8
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("背景透明度")
+                    text: qsTr("背景不透明度")
                 }
                 Button {
                     text: "−"
@@ -154,7 +257,8 @@ SettingsLayout {
     SettingCard {
         Layout.fillWidth: true
         title: "歌词配色方案"
-        description: "「自适应 / 鲜艳 / 柔和 / 偏色」都取自封面的主色调，会根据封面的明暗自动选用深色或浅色文字。"
+        description: "「自适应 / 鲜艳 / 柔和 / 偏色 / 主题强调色 / 封面双色」都跟随封面的主色调与明暗，并按 WCAG 对比度自动保证可读性；" +
+                     "「封面双色」让当前句用鲜艳的封面色、上/下一句用同色相的柔和色。"
 
         ColumnLayout {
             spacing: 10
@@ -201,10 +305,24 @@ SettingsLayout {
             RowLayout {
                 spacing: 12
                 RadioButton {
+                    text: "主题强调色"
+                    checked: root.colorModeValue === "accent"
+                    onCheckedChanged: if (checked) root.colorModeValue = "accent"
+                }
+                RadioButton {
+                    text: "封面双色"
+                    checked: root.colorModeValue === "duo"
+                    onCheckedChanged: if (checked) root.colorModeValue = "duo"
+                }
+                RadioButton {
                     text: "跟随主题"
                     checked: root.colorModeValue === "theme"
                     onCheckedChanged: if (checked) root.colorModeValue = "theme"
                 }
+            }
+
+            RowLayout {
+                spacing: 12
                 RadioButton {
                     text: "自定义"
                     checked: root.colorModeValue === "custom"
@@ -264,6 +382,31 @@ SettingsLayout {
 
     SettingCard {
         Layout.fillWidth: true
+        title: "切行动画时长"
+        description: "歌词换到下一句时，整列文字向上移动所用的时间；数值越大越慢、越柔和。"
+
+        RowLayout {
+            spacing: 8
+            Button {
+                text: "−"
+                implicitWidth: 36
+                onClicked: switchAnimValue = Math.max(400, switchAnimValue - 100)
+            }
+            Text {
+                Layout.preferredWidth: 80
+                horizontalAlignment: Text.AlignHCenter
+                text: switchAnimValue + " ms"
+            }
+            Button {
+                text: "+"
+                implicitWidth: 36
+                onClicked: switchAnimValue = Math.min(3000, switchAnimValue + 100)
+            }
+        }
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
         title: "显示播放进度条"
         description: "在歌词下方显示播放进度条；拿不到歌曲进度时会自动隐藏。"
 
@@ -301,9 +444,8 @@ SettingsLayout {
     SettingCard {
         Layout.fillWidth: true
         title: "歌词弹出显示"
-        description: "识别到歌词时自动弹出展示，类似灵动通知。" +
-                     "隐藏时机：歌曲暂停或停止约 10 秒后自动收起（恢复播放会重新弹出）；" +
-                     "若拿不到系统播放状态，则改为长时间没有新歌词后收起。"
+        description: "只有歌词渠道真的推来歌词时才显示；SMTC 识别到的歌名、封面、播放状态都不会让组件弹出。" +
+                     "歌曲暂停或停止、长时间没有新歌词后会自动收起。"
 
         Switch {
             checked: root.autoShowValue

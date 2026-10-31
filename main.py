@@ -469,6 +469,24 @@ class Plugin(CW2Plugin):
 
     lyricsAbsent = Property(bool, _get_lyrics_absent, notify=linesDirty)
 
+    # ---- QML 属性：组件是否应当显示 ----
+    def _get_showable(self):
+        """组件是否应当显示 —— 只认「传统歌词渠道」。
+
+        - 模型里已经有歌词行（歌词渠道推来的）→ 显示；
+        - 一行都还没有时，只在插件刚加载、尚未判定「无歌词」且仍在等待状态时
+          给出一段等待提示（宽限期到点后会判定无词并隐藏）。
+
+        SMTC 的歌名 / 专辑封面 / 播放状态，以及桥接用的「歌名 + 歌手」推送都
+        不参与这个判定，因此非传统渠道（浏览器视频等）被 SMTC 识别时不会让
+        组件重新弹出；只有传统渠道真的推来歌词才会恢复显示。
+        """
+        if self._model.count() > 0:
+            return True
+        return (not self._lyrics_grace_expired) and self._status == "waiting"
+
+    showable = Property(bool, _get_showable, notify=linesDirty)
+
     # ---- QML 属性：三行 + 进度 ----
     def _get_model(self):
         return self._model
@@ -552,13 +570,6 @@ class Plugin(CW2Plugin):
         self._recompute_progress()
         self.progressTick.emit()
 
-    def _get_bg_opacity(self) -> int:
-        """歌词组件背景透明度（0-100，100 = 原样）。仅缩放封面遮罩浓度。"""
-        try:
-            return max(0, min(100, int(self._config.bg_opacity)))
-        except Exception:                                # noqa: BLE001
-            return 100
-
     def _release_cover(self):
         """释放封面：删掉落盘文件并清空，图片与解码占用随之释放。"""
         if self._cover_url:
@@ -594,7 +605,6 @@ class Plugin(CW2Plugin):
     coverUrl = Property(str, _get_cover_url, notify=coverChanged)
     coverIsLight = Property(bool, _get_cover_light, notify=coverChanged)
     coverColor = Property(str, _get_cover_color, notify=coverChanged)
-    bgOpacity = Property(int, _get_bg_opacity, notify=coverChanged)
     # SMTC 体检闸门：由界面按核验结果写入，未通过即停用 SMTC 功能
     smtcGate = Property(bool, _get_smtc_gate, _set_smtc_gate)
     matchState = Property(str, _get_match_state, notify=progressTick)
@@ -649,10 +659,11 @@ class Plugin(CW2Plugin):
             self._extra = extra
             self._status = "ok"
             self._refresh_match()
-            # 歌词侧检测到换歌 → 清掉上一首残留，重新开始等新歌词。
-            # 这一步是「没有歌词就隐藏」能生效的前提：不清空的话
-            # 上一首的行会一直留在模型里，hasLyrics 恒为真，永远不隐藏。
+            # 换歌识别：这里只用于核验，不在这里清空歌词行 —— 新歌的第一句歌词
+            # 到达时增量逻辑会 trim_after + append，把上一首的行整体换掉；
+            # 提前清空会让组件在换歌空窗期先隐藏再弹出（小组件栏会抖一下）。
             self.lyricsChanged.emit()
+            self.linesDirty.emit()      # 通知显隐判定重新求值（showable）
             self.progressTick.emit()
             return
 
@@ -778,11 +789,21 @@ class Plugin(CW2Plugin):
             pass
 
     def _mark_no_lyrics(self, status="empty"):
-        """明确判定没有可显示的歌词（空 / 纯音乐）。"""
+        """明确判定没有可显示的歌词（空 / 纯音乐）。
+
+        除了置状态，还要把残留歌词清掉：判定无词时若模型里还留着上一首/上一句的行，
+        hasLyrics / showable 仍然为真，组件根本不会隐藏（纯音乐占位是最常见的场景）。
+        """
         self._status = status
         self._lyrics_grace_expired = True
         try:
             self._lyrics_grace.stop()
+        except Exception:
+            pass
+        try:
+            if self._model.count() > 0:
+                self._model.reset_rows([])
+                self._idx = 0
         except Exception:
             pass
         self.lyricsChanged.emit()
@@ -1085,8 +1106,13 @@ class Plugin(CW2Plugin):
                 "sub_font_size": 10,
                 "lyric_color": "auto",
                 "lyric_color_custom": "#ffffff",
-                "show_cover": True,
+                # 背景：cover=封面模糊 / solid=纯色 / none=无背景；
+                # bg_opacity 是「整层背景不透明度」，100 = 原样，0 = 只留文字
+                "bg_mode": "cover",
+                "bg_color": "#1b1e26",
+                "bg_blur": 32,
                 "bg_opacity": 100,
+                "switch_anim_ms": 1500,
                 "auto_show": True,
                 "show_progress": True,
                 "progress_unverified": False,

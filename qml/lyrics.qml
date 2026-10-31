@@ -10,7 +10,8 @@ import ClassWidgets.Theme
 // 歌词岛：上一句 / 当前句 / 附加行（译文或下一句）+ 底部播放进度条。
 // - 当前句参考 BetterNCM 的 LyricBar：逐字/逐词点亮，唱到的字不透明并上浮 2px。
 // - 附加行区分两类：译文用与当前歌词相同的字号与亮度；下一句做虚化（真模糊）。
-// - 背景：SMTC 专辑封面 → 模糊 → 圆角遮罩，歌词颜色按方案自适应。
+// - 背景：封面模糊 / 纯色 / 无背景，整层透明度可调；歌词颜色按方案自适应。
+// - 超宽时只有「当前句」横向滚动，上一句 / 下一句一律静止。
 Widget {
     id: root
     text: ""
@@ -28,13 +29,32 @@ Widget {
                                 ? root.settings.show_progress : true
     property bool allowUnverified: root.settings && root.settings.progress_unverified !== undefined
                                    ? root.settings.progress_unverified : true
-    property bool showCover: root.settings && root.settings.show_cover !== undefined
-                             ? root.settings.show_cover : true
-    // auto / light / dark / vivid / soft / tinted / theme / white / black / custom
+    // auto / light / dark / vivid / soft / tinted / accent / duo / theme / white / black / custom
     property string colorMode: root.settings && root.settings.lyric_color !== undefined
                                ? root.settings.lyric_color : "auto"
     property string customColor: root.settings && root.settings.lyric_color_custom !== undefined
                                  ? root.settings.lyric_color_custom : "#ffffff"
+    // 背景样式：cover=封面模糊 / solid=纯色 / none=无背景
+    property string bgMode: root.settings && root.settings.bg_mode !== undefined
+                            ? root.settings.bg_mode : "cover"
+    property string bgColorCustom: root.settings && root.settings.bg_color !== undefined
+                                   ? root.settings.bg_color : "#1b1e26"
+    property int bgBlurAmount: root.settings && root.settings.bg_blur !== undefined
+                               ? Math.max(0, Math.min(64, root.settings.bg_blur)) : 32
+    // 背景整层透明度（0-100）：100 = 原样，0 = 完全透明（只留歌词）
+    property int bgOpacityPct: {
+        var v = root.settings ? root.settings.bg_opacity : undefined
+        if (v === undefined || v === null)
+            v = 100
+        return Math.max(0, Math.min(100, v))
+    }
+    // 切行动画时长（ms）：越大越慢
+    property int switchAnimMs: {
+        var v = root.settings ? root.settings.switch_anim_ms : undefined
+        if (v === undefined || v === null)
+            v = 1500
+        return Math.max(200, Math.min(4000, v))
+    }
 
     // ---- SMTC 体检 ----
     // 只有确认 SMTC 与歌词渠道是同一首歌，才启用需要 SMTC 的功能（进度条 / 封面背景 / 逐字同步）。
@@ -44,32 +64,45 @@ Widget {
                                        || (root.allowUnverified && backend.matchState === "unknown")
     onSmtcUsableChanged: backend.smtcGate = root.smtcUsable
 
-    // ---- 封面与配色 ----
+    // ---- 背景与配色 ----
     readonly property string coverUrl: backend.coverUrl
-    readonly property bool hasCover: root.showCover && root.smtcUsable && root.coverUrl !== ""
-    readonly property string coverColor: backend.coverColor !== "" ? backend.coverColor : "#808080"
+    readonly property bool hasCoverBg: root.bgMode === "cover"
+                                       && root.smtcUsable && root.coverUrl !== ""
+    readonly property bool hasSolidBg: root.bgMode === "solid"
+    readonly property bool hasBg: (root.hasCoverBg || root.hasSolidBg) && root.bgOpacityPct > 0
+    readonly property real bgAlpha: root.hasBg ? root.bgOpacityPct / 100 : 0
+    readonly property color coverColor: backend.coverColor !== "" ? backend.coverColor : "#808080"
+    readonly property color solidBgColor: root.bgColorCustom !== "" ? root.bgColorCustom : "#1b1e26"
     // 没有封面时退回主题明暗
-    readonly property bool coverLight: root.hasCover ? backend.coverIsLight : !Theme.isDark()
+    readonly property bool coverLight: root.hasCoverBg ? backend.coverIsLight : !Theme.isDark()
 
     readonly property real cvH: root.coverColor.hslHue
     readonly property real cvS: root.coverColor.hslSaturation
     readonly property real cvL: root.coverColor.hslLightness
 
-    // 歌词前景色
+    // 歌词前景色（当前句 / 译文）
+    // auto 按「文字实际压着的底色」的亮度选深浅：比只看封面明暗更稳，
+    // 否则纯色深底 + 浅色主题时会被 ensureContrast 推成灰色（刚够 4.5:1 但发灰）。
     readonly property color fgColorRaw: {
         switch (root.colorMode) {
-        case "auto":   return root.coverLight ? "#15171c" : "#FFFFFF"
+        case "auto":   return root.wcagLuminance(root.backdropColor) < 0.42 ? "#FFFFFF" : "#15171c"
         case "light":  return "#FFFFFF"
         case "dark":   return "#15171c"
         case "vivid":  return Qt.hsla(root.cvH, 0.95, root.coverLight ? 0.30 : 0.70, 1.0)
         case "soft":   return Qt.hsla(root.cvH, 0.34, root.coverLight ? 0.24 : 0.86, 1.0)
         case "tinted": return Qt.hsla(root.cvH, 0.55, root.coverLight ? 0.18 : 0.90, 1.0)
+        case "accent": return Theme.currentTheme.colors.primaryColor
+        case "duo":    return Qt.hsla(root.cvH, 0.92, root.coverLight ? 0.30 : 0.72, 1.0)
         case "white":  return "#FFFFFF"
         case "black":  return "#000000"
         case "custom": return root.customColor
         default:       return Theme.currentTheme.colors.textColor
         }
     }
+    // 上一句 / 下一句的颜色：「封面双色」用同色相的柔和版，其余方案与主色一致
+    readonly property color subColorRaw: root.colorMode === "duo"
+        ? Qt.hsla(root.cvH, 0.36, root.coverLight ? 0.24 : 0.86, 1.0)
+        : root.fgColorRaw
 
     // 压在封面上的遮罩（保证歌词可读）
     readonly property color scrimColor: {
@@ -93,12 +126,8 @@ Widget {
         default:       return 0.58
         }
     }
-    // 背景透明度：0-100 作为百分比缩放遮罩浓度（100 = 原样）
-    readonly property real scrimOpacity: {
-        var pct = backend.bgOpacity
-        if (pct === undefined || pct === null) pct = 100
-        return root.scrimBase * (Math.max(0, Math.min(100, pct)) / 100)
-    }
+    // 遮罩浓度：只有封面模式用遮罩；整层透明度由 bgAlpha 统一负责
+    readonly property real scrimOpacity: root.hasCoverBg ? root.scrimBase : 0
 
     // ── 背景自适应配色（WCAG 2.1 对比度）──────────────────────────────
     // 依据：正文文字对比度 ≥ 4.5:1，大字号与 UI 组件 ≥ 3:1，按相对亮度计算。
@@ -114,16 +143,35 @@ Widget {
         return (hi + 0.05) / (lo + 0.05)
     }
 
-    // 进度条与文字实际压着的底色：封面色与遮罩色按透明度混合后的结果
+    // 主题卡片底色：插件背景层是半透明时，文字实际压着的是「主题卡片 + 本层」的混合色
+    // 注意 RinUI 的键名是 backgroundColor（没有 background 这个键）
+    readonly property color themeBackdrop: Theme.currentTheme.colors.backgroundColor
+
+    // 本层背景不透明时的颜色：封面 + 遮罩，或纯色
+    readonly property color layerColor: {
+        if (root.hasCoverBg) {
+            var c = root.coverColor
+            var a = Math.max(0.0, Math.min(1.0, root.scrimOpacity))
+            var s = root.coverLight ? 1.0 : 0.0
+            return Qt.rgba(c.r * (1 - a) + s * a,
+                           c.g * (1 - a) + s * a,
+                           c.b * (1 - a) + s * a, 1)
+        }
+        if (root.hasSolidBg)
+            return root.solidBgColor
+        return root.themeBackdrop
+    }
+
+    // 文字与进度条实际压着的底色：本层按透明度叠在主题卡片上
     readonly property color backdropColor: {
-        var cover = root.hasCover ? root.coverColor : Theme.currentTheme.colors.background
-        if (!root.hasCover) return cover
-        // 遮罩色：亮封面用近白、暗封面用近黑（与 scrimColor 的各档一致）
-        var sr = root.coverLight ? 1.0 : 0.0
-        var a = Math.max(0, Math.min(1, root.scrimOpacity))
-        return Qt.rgba(cover.r * (1 - a) + sr * a,
-                       cover.g * (1 - a) + sr * a,
-                       cover.b * (1 - a) + sr * a, 1)
+        if (!root.hasBg)
+            return root.themeBackdrop
+        var b = root.themeBackdrop
+        var l = root.layerColor
+        var a = root.bgAlpha
+        return Qt.rgba(l.r * a + b.r * (1 - a),
+                       l.g * a + b.g * (1 - a),
+                       l.b * a + b.b * (1 - a), 1)
     }
 
     // 保证对比度：先用给定色，不达标就朝黑/白推进，取第一个达标的
@@ -146,18 +194,24 @@ Widget {
     }
 
     // 进度条颜色：跟随封面主色相，但按 UI 组件标准保证 ≥ 3:1
-    readonly property color barColor: root.hasCover
-        ? root.ensureContrast(
-              Qt.hsla(root.cvH, root.coverLight ? 0.55 : 0.85,
-                      root.coverLight ? 0.32 : 0.74, 1.0),
-              root.backdropColor, 3.0)
-        : Theme.currentTheme.colors.primaryColor
+    readonly property color barColor: {
+        if (!root.hasBg)
+            return Theme.currentTheme.colors.primaryColor
+        var base = root.hasCoverBg
+                ? Qt.hsla(root.cvH, root.coverLight ? 0.55 : 0.85,
+                          root.coverLight ? 0.32 : 0.74, 1.0)
+                : Theme.currentTheme.colors.primaryColor
+        return root.ensureContrast(base, root.backdropColor, 3.0)
+    }
 
     // 歌词文字：各档配色先取"原始色"，再按正文标准保证 ≥ 4.5:1
-    // 于是鲜艳 / 柔和 / 偏色三档既能保留色相，又不会糊在背景里
-    readonly property color fgColor: root.hasCover
+    // 于是鲜艳 / 柔和 / 偏色等档位既能保留色相，又不会糊在背景里
+    readonly property color fgColor: root.hasBg
         ? root.ensureContrast(root.fgColorRaw, root.backdropColor, 4.5)
         : root.fgColorRaw
+    readonly property color subColor: root.hasBg
+        ? root.ensureContrast(root.subColorRaw, root.backdropColor, 4.5)
+        : root.subColorRaw
 
     // karaoke 参数（对齐 LyricBar）
     readonly property real unlitOpacity: 0.34
@@ -166,7 +220,6 @@ Widget {
     readonly property real liftY: -2
     readonly property int karaokeFade: 200
     readonly property real nextBlur: 0.75
-    readonly property real coverBlurRadius: 32
 
     // 自适应：按上一句的实际长度定速，并提前约 1 秒播放完
     readonly property int karaokeDuration: backend.lineDuration > 0
@@ -178,6 +231,8 @@ Widget {
                              ? root.settings.karaoke_enabled : true
 
     property bool hasLyrics: backend.hasLyrics
+    // 显隐只看「歌词渠道是否已经推来歌词」；SMTC 的歌名/封面/播放状态都不参与
+    property bool showable: backend.showable
 
     // 分词：CJK 每字一个 token，西文按词，空白单独保留
     function tokenize(s) {
@@ -187,64 +242,78 @@ Widget {
         return s.match(re) || []
     }
 
-    // ---- 背景：模糊封面 ----
+    // ---- 背景 ----
     backgroundArea: Item {
         anchors.fill: parent
-        visible: root.hasCover
+        visible: root.hasBg
+        // 整个背景层（封面/纯色 + 遮罩）一起变透明，正常显示状态下始终生效
+        opacity: root.bgAlpha
 
-        Image {
-            id: coverSrc
-            anchors.fill: parent
-            source: root.coverUrl
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: false
-            visible: false
-            smooth: true
-        }
-
-        FastBlur {
-            id: coverBlur
-            anchors.fill: parent
-            source: coverSrc
-            radius: root.coverBlurRadius
-            visible: false
-        }
-
-        // 圆角遮罩源
+        // —— 封面模糊 ——
         Item {
-            id: coverMask
             anchors.fill: parent
-            visible: false
+            visible: root.hasCoverBg
+
+            Image {
+                id: coverSrc
+                anchors.fill: parent
+                source: root.hasCoverBg ? root.coverUrl : ""
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: false
+                visible: false
+                smooth: true
+            }
+
+            FastBlur {
+                id: coverBlur
+                anchors.fill: parent
+                source: coverSrc
+                radius: root.bgBlurAmount
+                visible: false
+            }
+
+            // 圆角遮罩源
+            Item {
+                id: coverMask
+                anchors.fill: parent
+                visible: false
+                Rectangle {
+                    anchors.fill: parent
+                    radius: root.cornerRadius
+                    color: "white"
+                }
+            }
+
+            OpacityMask {
+                anchors.fill: parent
+                source: coverBlur
+                maskSource: coverMask
+            }
+
+            // 可读性遮罩
             Rectangle {
                 anchors.fill: parent
                 radius: root.cornerRadius
-                color: "white"
+                color: root.scrimColor
+                opacity: root.scrimOpacity
             }
         }
 
-        OpacityMask {
-            anchors.fill: parent
-            source: coverBlur
-            maskSource: coverMask
-        }
-
-        // 可读性遮罩
+        // —— 纯色背景 ——
         Rectangle {
             anchors.fill: parent
             radius: root.cornerRadius
-            color: root.scrimColor
-            opacity: root.scrimOpacity
+            color: root.solidBgColor
+            visible: root.hasSolidBg
         }
     }
 
-    // 灵动显隐
-    // 整个显隐判断只依据歌词有无，完全不看 SMTC 播放状态：
-    //   waiting/ok  → 有词或还在等推送，显示
-    //   lyricsAbsent → 明确没有歌词（宽限期到点仍无词，或对方推了纯音乐占位），隐藏
+    // 灵动显隐：只看歌词渠道是否已经推来歌词。
+    // SMTC 的歌名 / 封面 / 播放状态，以及桥接用的「歌名 + 歌手」推送都不参与判定，
+    // 所以非传统渠道（例如浏览器视频）被 SMTC 识别时不会把组件"弹"出来。
     readonly property bool shouldShow: editMode
-        || ((root.hasLyrics || backend.lyricStatus === "ok" || backend.lyricStatus === "waiting")
-            && root.autoShow && !backend.lyricsAbsent)
+        || (root.autoShow && root.showable)
     property bool actualVisible: true
     // 已知在暂停 / 已停止：**只用于让逐行歌词动画跟着停住**（避免高亮跑偏），
     // 与组件的显隐判断无关 —— 显隐只看歌词有无，不看播放状态。
@@ -307,22 +376,66 @@ Widget {
             anchors.bottom: progressBar.top
             anchors.bottomMargin: 4
             clip: true
+            cacheBuffer: content.rowH * 6
             model: backend.lyricModel
             currentIndex: backend.currentIndex
 
-            highlightRangeMode: Quick.ListView.StrictlyEnforceRange
-            preferredHighlightBegin: (height - content.rowH) / 2
-            preferredHighlightEnd: (height - content.rowH) / 2 + content.rowH
-            highlightMoveDuration: 950
-            snapMode: Quick.ListView.SnapToItem
+            // 自己控制纵向位置：ListView 默认的 snap 动画只有 ~100ms（表现为"上浮过快"），
+            // 这里改成用 switchAnimMs 驱动的 contentY 动画，时长可调。
+            highlightRangeMode: Quick.ListView.NoHighlightRange
+            snapMode: Quick.ListView.NoSnap
             boundsBehavior: Quick.Flickable.StopAtBounds
             interactive: false
+
+            // 让「当前句」落在可视区正中
+            function targetY() {
+                var rh = content.rowH
+                var y = currentIndex * rh - (height - rh) / 2
+                var maxY = Math.max(0, contentHeight - height)
+                return Math.max(0, Math.min(maxY, y))
+            }
+            function syncPosition(animated) {
+                var y = targetY()
+                if (Math.abs(contentY - y) < 0.5)
+                    return
+                if (animated && root.switchAnimMs > 0) {
+                    posAnim.stop()
+                    posAnim.to = y
+                    posAnim.restart()
+                } else {
+                    posAnim.stop()
+                    contentY = y
+                }
+            }
+            property int lastIndex: -1
+            NumberAnimation {
+                id: posAnim
+                target: lyricView
+                property: "contentY"
+                duration: root.switchAnimMs
+                easing.type: Easing.OutCubic
+            }
+            onCurrentIndexChanged: {
+                if (currentIndex !== lastIndex) {
+                    lastIndex = currentIndex
+                    syncPosition(true)
+                }
+            }
+            onContentHeightChanged: syncPosition(true)
+            onHeightChanged: syncPosition(false)
+            Component.onCompleted: {
+                lastIndex = currentIndex
+                contentY = targetY()
+            }
 
             delegate: Item {
                 id: cell
                 width: lyricView.width
                 height: content.rowH
-                clip: true
+                // 不在行内裁剪：行高（可视区/3）常常比字号的行高略小，
+                // 行内 clip 会把当前句的上下笔画（尤其西文降部）切掉一小截。
+                // 横向越界交给 ListView 自己的 clip：ListView 宽度 == 行宽，效果一致。
+                clip: false
 
                 // 行类型（来自模型）
                 readonly property string kind: (rowKind !== undefined) ? rowKind : "line"
@@ -344,11 +457,12 @@ Widget {
                     font.weight: Font.DemiBold
                     text: cell.tokens.join("")
                 }
-                readonly property bool overflow: textW >= cell.width - 1
-                // 横向滚动：当前句必须在本句时长内滚完（留 700ms 起滚缓冲）
-                readonly property int marqueeMs: cell.isCur
-                                                 ? Math.max(900, root.karaokeDuration - 700)
-                                                 : Math.max(3200, (cell.textW - cell.width) * 38)
+                readonly property bool overflow: cell.textW > cell.width - 0.5
+                // 只有「当前句」超宽时才横向滚动；上一句 / 下一句一律静止
+                readonly property bool canScroll: cell.isCur && cell.overflow
+                readonly property real scrollTarget: cell.width - cell.textW
+                // 横向滚动的阅读速度（像素/秒），并尽量在本句剩余时间里滚完
+                readonly property real scrollSpeed: 46
                 property real litCount: 0
 
                 Item {
@@ -377,7 +491,7 @@ Widget {
                                 verticalAlignment: Quick.Text.AlignVCenter
                                 font.pixelSize: cell.fs
                                 font.weight: Font.DemiBold
-                                color: root.fgColor
+                                color: (cell.isCur || cell.isTrans) ? root.fgColor : root.subColor
                                 opacity: cell.isCur
                                          ? ((!root.karaokeOn || index < cell.litCount) ? 1.0 : root.unlitOpacity)
                                          : cell.isTrans ? 1.0
@@ -460,14 +574,61 @@ Widget {
                     karaoke.start()
                 }
 
-                // 播放暂停 / 停止时让本行的动画一起停住，恢复播放再接上
-                function syncAnim() {
+                // 横向滚动：匀速向左，播完就停住（不循环）
+                SequentialAnimation {
+                    id: marquee
+                    PauseAnimation { duration: 600 }
+                    NumberAnimation {
+                        id: scrollAnim
+                        target: lineRoot
+                        property: "x"
+                        from: 0
+                        to: cell.scrollTarget
+                        easing.type: Easing.Linear
+                    }
+                }
+
+                // 播放暂停 / 停止时让滚动与逐字动画一起停住，恢复播放再接上
+                function syncPlayback() {
+                    if (!marquee.running)
+                        return
                     if (root.playbackStalled) {
                         if (marquee.running && !marquee.paused)
                             marquee.pause()
                     } else if (marquee.paused) {
                         marquee.resume()
                     }
+                }
+
+                // 位置判定：不滚动时按可用宽度居中；需要滚动时只启动一次，
+                // 已经在滚且目标没变就不打断（否则每次属性刷新都会被打回起点）。
+                function place() {
+                    if (!cell.canScroll) {
+                        if (marquee.running || marquee.paused)
+                            marquee.stop()
+                        lineRoot.x = cell.overflow ? 0 : Math.max(0, (cell.width - cell.textW) / 2)
+                        return
+                    }
+                    if ((marquee.running || marquee.paused)
+                            && Math.abs(scrollAnim.to - cell.scrollTarget) < 0.5) {
+                        syncPlayback()
+                        return
+                    }
+                    marquee.stop()
+                    lineRoot.x = 0
+                    var dist = Math.max(1, -cell.scrollTarget)
+                    var ms = Math.max(1000, Math.min(9000, dist / cell.scrollSpeed * 1000))
+                    var remain = backend.lineRemainMs
+                    if (remain > 600)
+                        ms = Math.max(700, Math.min(ms, remain - 250))
+                    scrollAnim.duration = ms
+                    marquee.start()
+                    if (root.playbackStalled)
+                        marquee.pause()
+                }
+
+                function syncAnim() {
+                    syncPlayback()
                     syncKaraoke()
                 }
 
@@ -479,46 +640,23 @@ Widget {
                     }
                 }
 
-                function relayout() {
-                    marquee.stop()
-                    lineRoot.x = 0
-                    if (overflow) {
-                        marquee.start()
-                        if (root.playbackStalled)
-                            marquee.pause()
-                    } else {
-                        lineRoot.x = Math.max(0, (cell.width - textW) / 2)
-                    }
-                }
-
                 onTokenCountChanged: {
-                    relayout()
+                    place()
                     startKaraoke()
                 }
-                onTextWChanged: relayout()
-                onWidthChanged: relayout()
-                // 字号变化必须直接重跑一次启停判定：overflow 虽是实时绑定，
-                // 但 relayout() 是带副作用的（启停动画、归位 x），它不重跑就停在旧状态。
-                onFsChanged: relayout()
-                onMeasuredWChanged: relayout()
-                onIsCurChanged: startKaraoke()
+                onTextWChanged: place()
+                onWidthChanged: place()
+                onFsChanged: place()
+                onMeasuredWChanged: place()
+                onOverflowChanged: place()
+                onCanScrollChanged: place()
+                onIsCurChanged: {
+                    place()
+                    startKaraoke()
+                }
                 Component.onCompleted: {
-                    relayout()
+                    place()
                     startKaraoke()
-                }
-
-                // 超宽歌词：从头部向左滚动，滚到全部展示完就停住，不循环
-                SequentialAnimation {
-                    id: marquee
-                    PauseAnimation { duration: 700 }
-                    NumberAnimation {
-                        target: lineRoot
-                        property: "x"
-                        from: 0
-                        to: cell.width - cell.textW
-                        duration: cell.marqueeMs
-                        easing.type: Easing.Linear
-                    }
                 }
             }
         }
@@ -542,28 +680,16 @@ Widget {
         }
     }
 
-    // 回退：有内容但不是多行歌词时，单行显示
+    // 等待提示：只在插件刚加载、还没收到任何歌词、且尚未判定「无歌词」时短暂显示；
+    // 一旦判定无词就整体隐藏，等传统歌词渠道真的推来歌词再恢复。
     Quick.Text {
         anchors.centerIn: parent
         width: parent.width
-        visible: !root.hasLyrics && backend.lyricStatus === "ok"
-        text: backend.lyricText
-        horizontalAlignment: Quick.Text.AlignHCenter
-        elide: Quick.Text.ElideRight
-        color: root.fgColor
-        font.pixelSize: root.mainSize
-        font.weight: Font.DemiBold
-    }
-
-    // 等待提示
-    Quick.Text {
-        anchors.centerIn: parent
-        width: parent.width
-        visible: backend.lyricStatus !== "ok" && !root.hasLyrics
+        visible: !root.hasLyrics && root.showable
         text: qsTr("等待音乐软件侧传输歌词...")
         horizontalAlignment: Quick.Text.AlignHCenter
         wrapMode: Quick.Text.Wrap
-        color: root.hasCover ? root.fgColor : Theme.currentTheme.colors.textSecondaryColor
+        color: root.hasBg ? root.fgColor : Theme.currentTheme.colors.textSecondaryColor
         font.pixelSize: 13
     }
 }
