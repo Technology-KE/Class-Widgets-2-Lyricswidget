@@ -283,54 +283,46 @@ Widget {
         diagTimer.start()
     }
 
-    // 宽度不随显隐切 0：隐藏交给 visible，主程序通过 contentHidden 收合槽位。
-    // 之前隐藏时把宽度切成 0，恢复时再把宽度改回来，会让 FastBlur / OpacityMask
-    // 这类 shader 特效的纹理按 0 尺寸渲染，重新显示后背景错位、内容像被裁掉一截
-    // （点一下组件触发重排才恢复正常）。
-    width: implicitWidth
+    // 显隐完全对齐官方 Widget 的「灵动隐藏」写法（src/qml/widgets/dynamicNotification.qml）：
+    // 隐藏时把宽度切成 0、动画播完才 actualVisible=false。主程序靠这个宽度变化维护布局
+    // 与窗口区域；之前改成"宽度恒定、只切 visible"，真机上就出现背景左侧一块区域整块
+    // 不绘制（点一下、触发重新布局才恢复）的问题。
+    width: actualVisible ? implicitWidth : 0
     visible: actualVisible
 
+    // 入场：先用 1ms 把 opacity 压到 0，再淡入 + popBack 放大（官方写法，避免闪现）
     SequentialAnimation {
         id: enterAnim
+        NumberAnimation { target: root; property: "opacity"; from: 0; to: 0; duration: 1 }
         ParallelAnimation {
-            NumberAnimation { target: root; property: "opacity"; from: 0; to: 1; duration: 320; easing.type: Easing.OutCubic }
-            NumberAnimation { target: root; property: "scale"; from: 0.94; to: 1; duration: 360; easing.type: Easing.OutCubic }
+            NumberAnimation { target: root; property: "opacity"; from: 0; to: 1; duration: 300; easing.type: Easing.OutCubic }
+            NumberAnimation { target: root; property: "scale"; from: 0.8; to: 1; duration: 400; easing.type: Easing.OutBack }
         }
         onFinished: actualVisible = shouldShow
     }
+    // 消失：同样先压 1ms，再淡出 + 缩小
     SequentialAnimation {
         id: exitAnim
+        NumberAnimation { target: root; property: "opacity"; from: 0; to: 0; duration: 1 }
         ParallelAnimation {
-            NumberAnimation { target: root; property: "opacity"; from: 1; to: 0; duration: 220; easing.type: Easing.InQuad }
-            NumberAnimation { target: root; property: "scale"; from: 1; to: 0.97; duration: 240; easing.type: Easing.InQuad }
+            NumberAnimation { target: root; property: "opacity"; from: 1; to: 0; duration: 200; easing.type: Easing.InQuad }
+            NumberAnimation { target: root; property: "scale"; from: 1; to: 0.9; duration: 250; easing.type: Easing.InQuad }
         }
-        onFinished: actualVisible = shouldShow
+        onFinished: {
+            if (shouldShow) {
+                // 消失还没播完又该显示了：直接接回入场，否则会停在 opacity=0（可见但全透明）
+                enterAnim.restart()
+                return
+            }
+            actualVisible = false
+        }
     }
 
-    // ---- 主体 ----
-    Item {
-        id: content
-        anchors.fill: parent
-        anchors.bottomMargin: root.miniMode ? -4 : -12
-        visible: root.hasLyrics
-
-        readonly property int visibleRows: root.miniMode ? 1 : 3
-        readonly property real rowH: Math.max(12, lyricView.height / visibleRows)
     // ---- 背景 ----
-    // 补丁：不再把背景放进 backgroundArea（主程序 z=-1 的那层背景容器）。
-    // 真机上 backgroundArea 的内容会被裁掉左边约一个 padding 宽度 —— 诊断日志显示
-    // bg 各层几何都是 300x100@0,0、父容器 300x100@0,0，几何全对，但渲染只画出右边
-    // 一大半（几何正确 + 绘制被裁 = 宿主那层的渲染问题，插件改布局修不了）。
-    // 画在内容层则完全正常：contentArea 在组件内偏移正好是 (padding, 16/12)，
-    // 所以用负偏移把它撑回组件原点、尺寸等于整个组件。
-    Item {
-        id: bgLayer
-        objectName: "lyricsBg"
-        x: -root.padding
-        y: -(root.miniMode ? 12 : 16)
-        width: root.width
-        height: root.height
-        z: -1
+    // 背景放在主程序的 backgroundArea 槽位里（与主题卡片同一层）。
+    // 封面模糊用"低分辨率解码 + 平滑放大"（不走 FastBlur），外面只包一层 OpacityMask 做圆角。
+    backgroundArea: Item {
+        anchors.fill: parent
         visible: root.hasBg
         // 整个背景层（封面/纯色 + 遮罩）一起变透明，正常显示状态下始终生效
         opacity: root.bgAlpha
@@ -341,10 +333,6 @@ Widget {
             anchors.fill: parent
             visible: root.hasCoverBg
 
-            // 用"低分辨率解码 + 平滑放大"得到模糊：不再使用 Qt5Compat 的 FastBlur。
-            // FastBlur 会单独占一层 FBO，和外面的 OpacityMask 叠在一起时，真机上出现过
-            // 背景层只画出右侧一大半、左边约一个 padding 宽度的区域整块没画（文字位置却是对的）。
-            // 现在整条链只剩 OpacityMask 一层（主题自己的边框也是这么用的，渲染正常）。
             Image {
                 id: coverSrc
                 anchors.fill: parent
@@ -397,6 +385,16 @@ Widget {
         }
     }
 
+    // ---- 主体 ----
+    Item {
+        id: content
+        anchors.fill: parent
+        anchors.bottomMargin: root.miniMode ? -4 : -12
+        visible: root.hasLyrics
+
+        readonly property int visibleRows: root.miniMode ? 1 : 3
+        readonly property real rowH: Math.max(12, lyricView.height / visibleRows)
+
         Quick.ListView {
             id: lyricView
             anchors.left: parent.left
@@ -425,40 +423,28 @@ Widget {
             }
             function syncPosition(animated) {
                 var y = targetY()
-                if (animated && root.switchAnimMs > 0) {
-                    if (posAnim.running) {
-                        // 目标没变就让当前这段自己走完（模型增删行时常见）
-                        if (Math.abs(posAnim.to - y) < 0.5)
-                            return
-                        // 目标真的变了（连续换行）：从当前位置续走，按剩余距离缩短时长。
-                        // 不能只改 to —— 运行中的 NumberAnimation 改 to 不会重定向；
-                        // 也不能整段 restart —— 缓动被反复重置就是"不连续"的来源。
-                        var dist = Math.abs(y - contentY)
-                        posAnim.stop()
-                        posAnim.from = contentY
-                        posAnim.to = y
-                        posAnim.duration = Math.max(200,
-                                                    root.switchAnimMs * Math.min(1, dist / Math.max(1, content.rowH)))
-                        posAnim.start()
-                    } else if (Math.abs(y - contentY) >= 0.5) {
-                        posAnim.stop()
-                        posAnim.from = contentY
-                        posAnim.to = y
-                        posAnim.duration = root.switchAnimMs
-                        posAnim.start()
-                    }
-                } else {
-                    posAnim.stop()
-                    if (Math.abs(y - contentY) >= 0.5)
+                if (!animated || root.switchAnimMs <= 0) {
+                    posBehavior.enabled = false
+                    if (Math.abs(contentY - y) >= 0.5)
                         contentY = y
+                    return
                 }
+                posBehavior.enabled = true
+                if (Math.abs(contentY - y) >= 0.5)
+                    contentY = y
             }
-            NumberAnimation {
-                id: posAnim
-                target: lyricView
-                property: "contentY"
-                duration: root.switchAnimMs
-                easing.type: Easing.OutCubic
+            // 用 Behavior + SmoothedAnimation 驱动 contentY：
+            // NumberAnimation 运行中改 to 不会重定向（实测），只能在目标变化时整段 restart，
+            // 而每次 restart 缓动都会从零开始、速度突变 —— 这就是换行"一卡一卡"的来源。
+            // SmoothedAnimation 天生支持连续改目标，模型增删行导致目标微调时能顺着接上。
+            Behavior on contentY {
+                id: posBehavior
+                enabled: false
+                SmoothedAnimation {
+                    velocity: Math.max(24, content.rowH * 1000 / Math.max(200, root.switchAnimMs))
+                    duration: root.switchAnimMs
+                    reversingMode: SmoothedAnimation.Eased
+                }
             }
             onCurrentIndexChanged: syncPosition(true)
             onContentHeightChanged: syncPosition(true)
@@ -643,8 +629,12 @@ Widget {
                 // 已经在滚且目标没变就不打断（否则每次属性刷新都会被打回起点）。
                 function place() {
                     if (!cell.canScroll) {
-                        if (marquee.running || marquee.paused)
+                        // 正在滚的下场：刚失去「当前句」身份的行停在原地，不要跳回起点/居中，
+                        // 否则换行瞬间这行文字会"啪"地平移一下（本句切到下一句一卡一卡的来源之一）
+                        if (marquee.running || marquee.paused) {
                             marquee.stop()
+                            return
+                        }
                         lineRoot.x = cell.overflow ? 0 : Math.max(0, (cell.width - cell.textW) / 2)
                         return
                     }
