@@ -289,8 +289,42 @@ Widget {
     // 隐藏时把宽度切成 0、动画播完才 actualVisible=false。主程序靠这个宽度变化维护布局
     // 与窗口区域；之前改成"宽度恒定、只切 visible"，真机上就出现背景左侧一块区域整块
     // 不绘制（点一下、触发重新布局才恢复）的问题。
-    width: actualVisible ? implicitWidth : 0
+    width: (actualVisible ? implicitWidth : 0) + (root.maskNudge ? 0.05 : 0)
+    height: (root.miniMode ? 56 : 100) + (root.maskNudge ? 0.05 : 0)
     visible: actualVisible
+
+    // 主程序用 root_window.setMask(QRegion) 裁剪组件窗口（core/widgets/core.py: update_mask）：
+    // mask 只在"布局变化"时重算，而且取的是 delegate 的当前宽度（=naturalWidth*growFactor）。
+    // 自动弹出时 delegate 的 growFactor 用 420ms 动画展开，动画期间算出的 mask 是中间值，
+    // 动画结束后没有任何几何变化再去通知它 → mask 一直停在中间尺寸，
+    // 组件边缘就被窗口 region 裁掉一条（鼠标点一下触发重新布局才恢复）。
+    // 这里在入场动画结束后抖两次尺寸（0.05px，肉眼不可见），逼主程序按最终布局重算 mask。
+    property bool maskNudge: false
+    Timer {
+        id: nudgeOffTimer
+        interval: 40
+        repeat: false
+        onTriggered: root.maskNudge = false
+    }
+    Timer {
+        id: nudgeFirstTimer
+        interval: 520
+        repeat: false
+        onTriggered: {
+            root.maskNudge = true
+            nudgeOffTimer.restart()
+            nudgeSecondTimer.restart()
+        }
+    }
+    Timer {
+        id: nudgeSecondTimer
+        interval: 760
+        repeat: false
+        onTriggered: {
+            root.maskNudge = true
+            nudgeOffTimer.restart()
+        }
+    }
 
     // 入场：先用 1ms 把 opacity 压到 0，再淡入 + popBack 放大（官方写法，避免闪现）
     SequentialAnimation {
@@ -300,7 +334,11 @@ Widget {
             NumberAnimation { target: root; property: "opacity"; from: 0; to: 1; duration: 300; easing.type: Easing.OutCubic }
             NumberAnimation { target: root; property: "scale"; from: 0.8; to: 1; duration: 400; easing.type: Easing.OutBack }
         }
-        onFinished: actualVisible = shouldShow
+        onFinished: {
+            actualVisible = shouldShow
+            if (actualVisible)
+                nudgeFirstTimer.restart()   // 入场结束后让主程序重算一次窗口 mask
+        }
     }
     // 消失：同样先压 1ms，再淡出 + 缩小
     SequentialAnimation {
