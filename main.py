@@ -248,18 +248,33 @@ class LyricListModel(QAbstractListModel):
             self.endRemoveRows()
 
 
-_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]")
+_SCRIPT_RES = {
+    "han": re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]"),
+    "kana": re.compile(r"[\u3040-\u30ff]"),
+    "hangul": re.compile(r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]"),
+    "latin": re.compile(r"[A-Za-z]"),
+}
+
+
+def _script_set(s):
+    """这段文字里出现了哪些书写系统（han / kana / hangul / latin）。"""
+    return {name for name, rx in _SCRIPT_RES.items() if rx.search(s)}
 
 
 def _is_translation(lyric, extra):
     """推测 extra 是当前句的译文还是下一句。
 
     发送端 extra 是二选一（有翻译给翻译，否则给下一句），没有显式标记。
-    经验：两者书写系统不同（如英文原词 + 中文翻译）判为译文，否则判为下一句。
+    判据按「书写系统集合」而不是「有没有中文」：
+      - 集合不同 → 译文。覆盖：英文歌词 + 中文译文、韩文/日文歌词 + 中文译文、
+        中英混排歌词 + 英文/中文译文（旧实现里「韩文或中英混排」会和中文译文
+        一样被判成"有中文"，从而误判成下一句）；
+      - 集合相同（如同为中文、同为英文、同为同一种混排）→ 下一句。
+        猜错的下一句会在它真的作为当前句出现时由 reclassify_extra 回溯纠正。
     """
     if not lyric or not extra:
         return False
-    return bool(_CJK_RE.search(lyric)) != bool(_CJK_RE.search(extra))
+    return _script_set(lyric) != _script_set(extra)
 
 
 def _first(payload, *keys):
@@ -653,15 +668,26 @@ class Plugin(CW2Plugin):
 
         # 该条其实是"歌曲信息条"（与 SMTC 歌名一致）→ 不当歌词，只用于核验
         if cur and self._is_song_info(cur, extra):
+            song_changed = (cur != self._claim_title or extra != self._claim_artist)
             self._claim_title = cur
             self._claim_artist = extra
             self._lyric = cur
             self._extra = extra
             self._status = "ok"
             self._refresh_match()
-            # 换歌识别：这里只用于核验，不在这里清空歌词行 —— 新歌的第一句歌词
-            # 到达时增量逻辑会 trim_after + append，把上一首的行整体换掉；
-            # 提前清空会让组件在换歌空窗期先隐藏再弹出（小组件栏会抖一下）。
+            # 换歌 → 直接清空上一首残留：否则新歌前奏/换歌空窗期里还挂着旧歌词，很怪。
+            # 清空后模型没有行 → showable=False，组件先收起，等新歌第一句歌词再弹出。
+            if song_changed:
+                try:
+                    if self._model.count() > 0:
+                        self._model.reset_rows([])
+                    self._idx = 0
+                    self._line_dur_ms = 0
+                    self._line_start_pos = None
+                    self._lyric = ""
+                    self._extra = ""
+                except Exception:
+                    pass
             self.lyricsChanged.emit()
             self.linesDirty.emit()      # 通知显隐判定重新求值（showable）
             self.progressTick.emit()

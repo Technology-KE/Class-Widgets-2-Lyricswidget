@@ -539,9 +539,10 @@ Widget {
                     scale: cell.isCur ? 1.0 : 0.9
                     transformOrigin: Item.Center
 
-                    // 缩放动画与整列滑动同频同时长，三行才是一起动而不是各动各的
+                    // 缩放只在换行开头快速收/放一下，剩下的时间只有整列滑动 ——
+                    // 之前和滑动同长会让「字在变大/变小的同时整列在移动」，看着发飘
                     Behavior on scale {
-                        NumberAnimation { duration: root.switchAnimMs; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
                     }
 
                     Row {
