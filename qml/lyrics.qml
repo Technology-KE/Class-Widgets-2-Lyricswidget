@@ -467,27 +467,40 @@ Widget {
             function syncPosition(animated) {
                 var y = targetY()
                 if (!animated || root.switchAnimMs <= 0) {
-                    posBehavior.enabled = false
+                    posAnim.stop()
                     if (Math.abs(contentY - y) >= 0.5)
                         contentY = y
                     return
                 }
-                posBehavior.enabled = true
-                if (Math.abs(contentY - y) >= 0.5)
-                    contentY = y
-            }
-            // 用 Behavior + SmoothedAnimation 驱动 contentY：
-            // NumberAnimation 运行中改 to 不会重定向（实测），只能在目标变化时整段 restart，
-            // 而每次 restart 缓动都会从零开始、速度突变 —— 这就是换行"一卡一卡"的来源。
-            // SmoothedAnimation 天生支持连续改目标，模型增删行导致目标微调时能顺着接上。
-            Behavior on contentY {
-                id: posBehavior
-                enabled: false
-                SmoothedAnimation {
-                    velocity: Math.max(24, content.rowH * 1000 / Math.max(200, root.switchAnimMs))
-                    duration: root.switchAnimMs
-                    reversingMode: SmoothedAnimation.Eased
+                if (posAnim.running) {
+                    // 目标没变（换行时模型增删行造成的微调）→ 让它自己走完，绝不 restart
+                    if (Math.abs(posAnim.to - y) < 0.5)
+                        return
+                    // 目标真的变了：从当前位置续走，按剩余距离缩短时长（不重置整段缓动）
+                    var dist = Math.abs(y - contentY)
+                    posAnim.stop()
+                    posAnim.from = contentY
+                    posAnim.to = y
+                    posAnim.duration = Math.max(180,
+                                                root.switchAnimMs * Math.min(1, dist / Math.max(1, content.rowH)))
+                    posAnim.start()
+                } else if (Math.abs(y - contentY) >= 0.5) {
+                    posAnim.stop()
+                    posAnim.from = contentY
+                    posAnim.to = y
+                    posAnim.duration = root.switchAnimMs
+                    posAnim.start()
                 }
+            }
+            // 用 NumberAnimation + OutCubic 驱动 contentY：换行那一帧就立刻有位移。
+            // （之前用 SmoothedAnimation 是"慢慢加速"的曲线，前 ~150ms 几乎不动，
+            //  而歌词文字在模型更新那一帧就已经换好了 → 看起来就是"先闪一下再开始滑"。）
+            NumberAnimation {
+                id: posAnim
+                target: lyricView
+                property: "contentY"
+                duration: root.switchAnimMs
+                easing.type: Easing.OutCubic
             }
             onCurrentIndexChanged: syncPosition(true)
             onContentHeightChanged: syncPosition(true)
