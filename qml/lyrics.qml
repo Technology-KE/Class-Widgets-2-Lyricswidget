@@ -259,6 +259,10 @@ Widget {
             anchors.fill: parent
             visible: root.hasCoverBg
 
+            // 用"低分辨率解码 + 平滑放大"得到模糊：不再使用 Qt5Compat 的 FastBlur。
+            // FastBlur 会单独占一层 FBO，和外面的 OpacityMask 叠在一起时，真机上出现过
+            // 背景层只画出右侧一大半、左边约一个 padding 宽度的区域整块没画（文字位置却是对的）。
+            // 现在整条链只剩 OpacityMask 一层（主题自己的边框也是这么用的，渲染正常）。
             Image {
                 id: coverSrc
                 anchors.fill: parent
@@ -268,14 +272,9 @@ Widget {
                 cache: false
                 visible: false
                 smooth: true
-            }
-
-            FastBlur {
-                id: coverBlur
-                anchors.fill: parent
-                source: coverSrc
-                radius: root.bgBlurAmount
-                visible: false
+                // bgBlurAmount 0..64 → 解码分辨率 300..100，越小越糊
+                sourceSize.width: Math.max(16, Math.round(300 * 32 / (root.bgBlurAmount + 32)))
+                sourceSize.height: Math.max(16, Math.round(300 * 32 / (root.bgBlurAmount + 32)))
             }
 
             // 圆角遮罩源
@@ -292,7 +291,7 @@ Widget {
 
             OpacityMask {
                 anchors.fill: parent
-                source: coverBlur
+                source: coverSrc
                 maskSource: coverMask
             }
 
