@@ -16,7 +16,10 @@ Widget {
     id: root
     text: ""
 
-    implicitWidth: 300
+    // 不写死 implicitWidth：和官方小组件一样，让主程序按 contentArea 里内容的实际宽度
+    // 计算 implicitWidth（BaseWidget: max(header, contentWidth) + 48），宽度变化时会走
+    // 主程序自带的那条展开动画 —— 隐藏/恢复后的尺寸才是主程序认得的。
+    // 下面的 content 固定 252 宽（252 + 左右 padding 24*2 = 300）。
 
     // ---- 设置 ----
     property int mainSize: root.settings && root.settings.lyric_font_size !== undefined
@@ -387,8 +390,11 @@ Widget {
     // ---- 主体 ----
     Item {
         id: content
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
         anchors.bottomMargin: root.miniMode ? -4 : -12
+        x: 0
+        width: 252
         visible: root.hasLyrics
 
         readonly property int visibleRows: root.miniMode ? 1 : 3
