@@ -59,10 +59,14 @@ Widget {
     // ---- SMTC 体检 ----
     // 只有确认 SMTC 与歌词渠道是同一首歌，才启用需要 SMTC 的功能（进度条 / 封面背景 / 逐字同步）。
     // 明确"不是同一首歌"时一律停用；状态未知时由"未核验也使用"开关决定。
-    readonly property bool smtcVerified: backend.matchState === "matched"
+    // 主程序是先 Loader.Ready、之后才赋 backend 的，创建期 backend 可能是 null，
+    // 这里统一判空，避免一堆 "TypeError: Cannot read property" 警告。
+    readonly property bool hasBackend: root.backend !== null && root.backend !== undefined
+    readonly property bool smtcVerified: root.hasBackend && backend.matchState === "matched"
     readonly property bool smtcUsable: root.smtcVerified
-                                       || (root.allowUnverified && backend.matchState === "unknown")
-    onSmtcUsableChanged: backend.smtcGate = root.smtcUsable
+                                       || (root.hasBackend && root.allowUnverified
+                                           && backend.matchState === "unknown")
+    onSmtcUsableChanged: if (root.hasBackend) backend.smtcGate = root.smtcUsable
 
     // ---- 背景与配色 ----
     readonly property string coverUrl: backend.coverUrl
@@ -232,7 +236,7 @@ Widget {
 
     property bool hasLyrics: backend.hasLyrics
     // 显隐只看「歌词渠道是否已经推来歌词」；SMTC 的歌名/封面/播放状态都不参与
-    property bool showable: backend.showable
+    property bool showable: root.hasBackend && backend.showable
 
     // 分词：CJK 每字一个 token，西文按词，空白单独保留
     function tokenize(s) {
@@ -321,20 +325,26 @@ Widget {
 
     function updateVisibility() {
         if (shouldShow) {
-            if (!actualVisible) {
-                actualVisible = true
-                exitAnim.stop()
-                enterAnim.start()
-            }
+            // 以动画本身作为状态判断，而不是 actualVisible：
+            // exitAnim 还没播完时 actualVisible 仍是 true，旧代码这时不会重启
+            // enterAnim，等 exitAnim 结束把 opacity 留在 0 —— 就会"可见但全透明"。
+            if (enterAnim.running)
+                return
+            actualVisible = true
+            exitAnim.stop()
+            enterAnim.restart()
         } else {
+            if (exitAnim.running)
+                return
             enterAnim.stop()
-            exitAnim.start()
+            exitAnim.restart()
         }
     }
     onShouldShowChanged: updateVisibility()
 
     Component.onCompleted: {
-        backend.smtcGate = root.smtcUsable
+        if (root.backend)
+            backend.smtcGate = root.smtcUsable
         actualVisible = shouldShow
     }
 
@@ -391,33 +401,52 @@ Widget {
             boundsBehavior: Quick.Flickable.StopAtBounds
             interactive: false
 
-            // 让「当前句」落在可视区正中
+            // 用 header/footer 补上下留白：这样"当前句居中"所需的位置恒等于
+            // currentIndex * rowH，不再受 contentHeight（模型增删行）影响 —— 否则
+            // 换行时模型先 trim 再 append，目标会被 ListView 的 maxY 夹来夹去，
+            // 动画就会来回改目标、看起来一跳一跳。
+            header: Item {
+                width: lyricView.width
+                height: Math.max(0, (lyricView.height - content.rowH) / 2)
+            }
+            footer: Item {
+                width: lyricView.width
+                height: Math.max(0, (lyricView.height - content.rowH) / 2)
+            }
+
             function targetY() {
-                var rh = content.rowH
-                var y = currentIndex * rh - (height - rh) / 2
-                var maxY = Math.max(0, contentHeight - height)
-                return Math.max(0, Math.min(maxY, y))
+                return Math.max(0, currentIndex) * content.rowH
             }
             function syncPosition(animated) {
                 var y = targetY()
                 if (animated && root.switchAnimMs > 0) {
-                    // 已经在滑就只更新终点、不重新起步：模型每次换行都会改动
-                    // contentHeight / currentIndex，如果每次都 restart，动画就会被
-                    // 反复拽回起点，看起来一顿一顿的（不连续）。
                     if (posAnim.running) {
-                        if (Math.abs(posAnim.to - y) > 0.5)
-                            posAnim.to = y
-                    } else if (Math.abs(contentY - y) > 0.5) {
+                        // 目标没变就让当前这段自己走完（模型增删行时常见）
+                        if (Math.abs(posAnim.to - y) < 0.5)
+                            return
+                        // 目标真的变了（连续换行）：从当前位置续走，按剩余距离缩短时长。
+                        // 不能只改 to —— 运行中的 NumberAnimation 改 to 不会重定向；
+                        // 也不能整段 restart —— 缓动被反复重置就是"不连续"的来源。
+                        var dist = Math.abs(y - contentY)
+                        posAnim.stop()
+                        posAnim.from = contentY
                         posAnim.to = y
-                        posAnim.restart()
+                        posAnim.duration = Math.max(200,
+                                                    root.switchAnimMs * Math.min(1, dist / Math.max(1, content.rowH)))
+                        posAnim.start()
+                    } else if (Math.abs(y - contentY) >= 0.5) {
+                        posAnim.stop()
+                        posAnim.from = contentY
+                        posAnim.to = y
+                        posAnim.duration = root.switchAnimMs
+                        posAnim.start()
                     }
-                    return
+                } else {
+                    posAnim.stop()
+                    if (Math.abs(y - contentY) >= 0.5)
+                        contentY = y
                 }
-                posAnim.stop()
-                if (Math.abs(contentY - y) > 0.5)
-                    contentY = y
             }
-            property int lastIndex: -1
             NumberAnimation {
                 id: posAnim
                 target: lyricView
@@ -425,18 +454,10 @@ Widget {
                 duration: root.switchAnimMs
                 easing.type: Easing.OutCubic
             }
-            onCurrentIndexChanged: {
-                if (currentIndex !== lastIndex) {
-                    lastIndex = currentIndex
-                    syncPosition(true)
-                }
-            }
+            onCurrentIndexChanged: syncPosition(true)
             onContentHeightChanged: syncPosition(true)
             onHeightChanged: syncPosition(false)
-            Component.onCompleted: {
-                lastIndex = currentIndex
-                contentY = targetY()
-            }
+            Component.onCompleted: contentY = targetY()
 
             delegate: Item {
                 id: cell
