@@ -248,6 +248,7 @@ Widget {
 
     // ---- 背景 ----
     backgroundArea: Item {
+        objectName: "lyricsBg"
         anchors.fill: parent
         visible: root.hasBg
         // 整个背景层（封面/纯色 + 遮罩）一起变透明，正常显示状态下始终生效
@@ -346,6 +347,7 @@ Widget {
         if (root.backend)
             backend.smtcGate = root.smtcUsable
         actualVisible = shouldShow
+        diagTimer.start()
     }
 
     // 宽度不随显隐切 0：隐藏交给 visible，主程序通过 contentHidden 收合槽位。
@@ -401,21 +403,12 @@ Widget {
             boundsBehavior: Quick.Flickable.StopAtBounds
             interactive: false
 
-            // 用 header/footer 补上下留白：这样"当前句居中"所需的位置恒等于
-            // currentIndex * rowH，不再受 contentHeight（模型增删行）影响 —— 否则
-            // 换行时模型先 trim 再 append，目标会被 ListView 的 maxY 夹来夹去，
-            // 动画就会来回改目标、看起来一跳一跳。
-            header: Item {
-                width: lyricView.width
-                height: Math.max(0, (lyricView.height - content.rowH) / 2)
-            }
-            footer: Item {
-                width: lyricView.width
-                height: Math.max(0, (lyricView.height - content.rowH) / 2)
-            }
-
+            // 当前句居中所需的位置（受 contentHeight 限制，首尾行会贴边）
             function targetY() {
-                return Math.max(0, currentIndex) * content.rowH
+                var rh = content.rowH
+                var y = Math.max(0, currentIndex) * rh - (height - rh) / 2
+                var maxY = Math.max(0, contentHeight - height)
+                return Math.max(0, Math.min(maxY, y))
             }
             function syncPosition(animated) {
                 var y = targetY()
@@ -712,6 +705,38 @@ Widget {
             }
         }
     }
+
+    // ---- 临时诊断（定位背景错位用，定位完删除）----
+    function diagDump() {
+        if (!root.backend || !root.backend.diag)
+            return
+        var s = "root=" + Math.round(width) + "x" + Math.round(height)
+                + "@" + Math.round(x) + "," + Math.round(y)
+                + " scale=" + scale.toFixed(3) + " op=" + opacity.toFixed(3)
+        var p = root, chain = []
+        for (var i = 0; i < 7 && p; i++) {
+            chain.push((p.objectName !== undefined && p.objectName !== "" ? p.objectName : "item")
+                       + ":" + Math.round(p.width) + "x" + Math.round(p.height)
+                       + "@" + Math.round(p.x) + "," + Math.round(p.y))
+            p = p.parent
+        }
+        s += " | parents=" + chain.join("<")
+        var bg = root.backgroundArea
+        for (var j = 0; j < bg.length; j++)
+            s += " | bg" + j + "=" + Math.round(bg[j].width) + "x" + Math.round(bg[j].height)
+                 + "@" + Math.round(bg[j].x) + "," + Math.round(bg[j].y) + ",vis=" + bg[j].visible
+        s += " | content=" + Math.round(content.width) + "x" + Math.round(content.height)
+             + "@" + Math.round(content.x) + "," + Math.round(content.y)
+        s += " | view=" + Math.round(lyricView.width) + "x" + Math.round(lyricView.height)
+        root.backend.diag(s)
+    }
+    Timer {
+        id: diagTimer
+        interval: 700
+        repeat: false
+        onTriggered: root.diagDump()
+    }
+    onActualVisibleChanged: if (actualVisible) diagTimer.restart()
 
     // 等待提示：只在插件刚加载、还没收到任何歌词、且尚未判定「无歌词」时短暂显示；
     // 一旦判定无词就整体隐藏，等传统歌词渠道真的推来歌词再恢复。
