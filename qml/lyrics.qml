@@ -247,9 +247,20 @@ Widget {
     }
 
     // ---- 背景 ----
-    backgroundArea: Item {
+    // 补丁：不再把背景放进 backgroundArea（主程序 z=-1 的那层背景容器）。
+    // 真机上 backgroundArea 的内容会被裁掉左边约一个 padding 宽度 —— 诊断日志显示
+    // bg 各层几何都是 300x100@0,0、父容器 300x100@0,0，几何全对，但渲染只画出右边
+    // 一大半（几何正确 + 绘制被裁 = 宿主那层的渲染问题，插件改布局修不了）。
+    // 画在内容层则完全正常：contentArea 在组件内偏移正好是 (padding, 16/12)，
+    // 所以用负偏移把它撑回组件原点、尺寸等于整个组件。
+    Item {
+        id: bgLayer
         objectName: "lyricsBg"
-        anchors.fill: parent
+        x: -root.padding
+        y: -(root.miniMode ? 12 : 16)
+        width: root.width
+        height: root.height
+        z: -1
         visible: root.hasBg
         // 整个背景层（封面/纯色 + 遮罩）一起变透明，正常显示状态下始终生效
         opacity: root.bgAlpha
