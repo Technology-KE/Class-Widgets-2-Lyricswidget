@@ -83,24 +83,41 @@ SettingsLayout {
         // 否则第二个子项会顶掉第一个，表现为整张卡都调不动。
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: 10
 
             RowLayout {
-                spacing: 12
-                RadioButton {
-                    text: "封面模糊"
+                Layout.fillWidth: true
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("背景样式")
+                }
+                PillButton {
+                    text: qsTr("封面模糊")
                     checked: root.bgModeValue === "cover"
-                    onCheckedChanged: if (checked) root.bgModeValue = "cover"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.bgModeValue = "cover"
+                    }
                 }
-                RadioButton {
-                    text: "纯色"
+                PillButton {
+                    text: qsTr("纯色")
                     checked: root.bgModeValue === "solid"
-                    onCheckedChanged: if (checked) root.bgModeValue = "solid"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.bgModeValue = "solid"
+                    }
                 }
-                RadioButton {
-                    text: "无背景"
+                PillButton {
+                    text: qsTr("无背景")
                     checked: root.bgModeValue === "none"
-                    onCheckedChanged: if (checked) root.bgModeValue = "none"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.bgModeValue = "none"
+                    }
                 }
             }
 
@@ -261,72 +278,108 @@ SettingsLayout {
                      "「封面双色」让当前句用鲜艳的封面色、上/下一句用同色相的柔和色。"
 
         ColumnLayout {
-            spacing: 10
+            spacing: 8
             Layout.fillWidth: true
 
             RowLayout {
-                spacing: 12
-                RadioButton {
-                    text: "自适应"
+                spacing: 8
+                PillButton {
+                    text: qsTr("自适应")
                     checked: root.colorModeValue === "auto"
-                    onCheckedChanged: if (checked) root.colorModeValue = "auto"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "auto"
+                    }
                 }
-                RadioButton {
-                    text: "深色"
+                PillButton {
+                    text: qsTr("深色")
                     checked: root.colorModeValue === "dark"
-                    onCheckedChanged: if (checked) root.colorModeValue = "dark"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "dark"
+                    }
                 }
-                RadioButton {
-                    text: "浅色"
+                PillButton {
+                    text: qsTr("浅色")
                     checked: root.colorModeValue === "light"
-                    onCheckedChanged: if (checked) root.colorModeValue = "light"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "light"
+                    }
                 }
-            }
-
-            RowLayout {
-                spacing: 12
-                RadioButton {
-                    text: "鲜艳"
+                PillButton {
+                    text: qsTr("鲜艳")
                     checked: root.colorModeValue === "vivid"
-                    onCheckedChanged: if (checked) root.colorModeValue = "vivid"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "vivid"
+                    }
                 }
-                RadioButton {
-                    text: "柔和"
+            }
+
+            RowLayout {
+                spacing: 8
+                PillButton {
+                    text: qsTr("柔和")
                     checked: root.colorModeValue === "soft"
-                    onCheckedChanged: if (checked) root.colorModeValue = "soft"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "soft"
+                    }
                 }
-                RadioButton {
-                    text: "偏色"
+                PillButton {
+                    text: qsTr("偏色")
                     checked: root.colorModeValue === "tinted"
-                    onCheckedChanged: if (checked) root.colorModeValue = "tinted"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "tinted"
+                    }
                 }
-            }
-
-            RowLayout {
-                spacing: 12
-                RadioButton {
-                    text: "主题强调色"
+                PillButton {
+                    text: qsTr("主题强调色")
                     checked: root.colorModeValue === "accent"
-                    onCheckedChanged: if (checked) root.colorModeValue = "accent"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "accent"
+                    }
                 }
-                RadioButton {
-                    text: "封面双色"
+                PillButton {
+                    text: qsTr("封面双色")
                     checked: root.colorModeValue === "duo"
-                    onCheckedChanged: if (checked) root.colorModeValue = "duo"
-                }
-                RadioButton {
-                    text: "跟随主题"
-                    checked: root.colorModeValue === "theme"
-                    onCheckedChanged: if (checked) root.colorModeValue = "theme"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "duo"
+                    }
                 }
             }
 
             RowLayout {
-                spacing: 12
-                RadioButton {
-                    text: "自定义"
+                spacing: 8
+                PillButton {
+                    text: qsTr("跟随主题")
+                    checked: root.colorModeValue === "theme"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "theme"
+                    }
+                }
+                PillButton {
+                    text: qsTr("自定义")
                     checked: root.colorModeValue === "custom"
-                    onCheckedChanged: if (checked) root.colorModeValue = "custom"
+                    onClicked: {
+                        if (!checked)
+                            checked = true
+                        root.colorModeValue = "custom"
+                    }
                 }
             }
 
@@ -410,9 +463,10 @@ SettingsLayout {
         title: "显示播放进度条"
         description: "在歌词下方显示播放进度条；拿不到歌曲进度时会自动隐藏。"
 
-        Switch {
+        ToggleButton {
+            text: checked ? qsTr("已启用") : qsTr("已关闭")
             checked: root.showProgressValue
-            onCheckedChanged: root.showProgressValue = checked
+            onClicked: root.showProgressValue = checked
         }
     }
 
@@ -420,12 +474,12 @@ SettingsLayout {
         Layout.fillWidth: true
         title: "未核验时也使用 SMTC 功能"
         description: "默认关闭：只要没确认 SMTC 与歌词是同一首歌，就停用播放进度条、封面背景、" +
-                     "以及逐字同步（改为按节奏估算），并释放封面等占用，只保留歌词自身能提供的效果。" +
-                     "打开后会退回到「没确认也用」的旧行为。"
+                     "以及逐字同步（改为按节奏估算），并释放封面等占用，只保留歌词自身能提供的效果。"
 
-        Switch {
+        ToggleButton {
+            text: checked ? qsTr("已启用") : qsTr("已关闭")
             checked: root.allowUnverifiedValue
-            onCheckedChanged: root.allowUnverifiedValue = checked
+            onClicked: root.allowUnverifiedValue = checked
         }
     }
 
@@ -435,9 +489,10 @@ SettingsLayout {
         description: "仅为动画效果：速度按上一句的节奏自适应估算，实际演唱可能比它提前或延后。" +
                      "关闭后当前歌词整行保持满亮度。"
 
-        Switch {
+        ToggleButton {
+            text: checked ? qsTr("已启用") : qsTr("已关闭")
             checked: root.karaokeValue
-            onCheckedChanged: root.karaokeValue = checked
+            onClicked: root.karaokeValue = checked
         }
     }
 
@@ -447,9 +502,10 @@ SettingsLayout {
         description: "只有歌词渠道真的推来歌词时才显示；SMTC 识别到的歌名、封面、播放状态都不会让组件弹出。" +
                      "歌曲暂停或停止、长时间没有新歌词后会自动收起。"
 
-        Switch {
+        ToggleButton {
+            text: checked ? qsTr("已启用") : qsTr("已关闭")
             checked: root.autoShowValue
-            onCheckedChanged: root.autoShowValue = checked
+            onClicked: root.autoShowValue = checked
         }
     }
 }
