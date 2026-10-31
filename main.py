@@ -614,14 +614,6 @@ class Plugin(CW2Plugin):
     playbackKnown = Property(bool, _get_playback_known, notify=progressTick)
     playbackPaused = Property(bool, _get_playback_paused, notify=progressTick)
 
-    # ---- 临时诊断（定位背景错位用，定位完删除）----
-    @Slot(str)
-    def diag(self, msg):
-        try:
-            logger.info(f"[lyricswidget][diag] {msg}")
-        except Exception:
-            pass
-
     # ---- HTTP 线程入口 ----
     def post_lyrics(self, payload: dict):
         if isinstance(payload, dict):

@@ -280,7 +280,6 @@ Widget {
         if (root.backend)
             backend.smtcGate = root.smtcUsable
         actualVisible = shouldShow
-        diagTimer.start()
     }
 
     // 显隐完全对齐官方 Widget 的「灵动隐藏」写法（src/qml/widgets/dynamicNotification.qml）：
@@ -708,58 +707,6 @@ Widget {
             }
         }
     }
-
-    // ---- 临时诊断（定位背景错位用，定位完删除）----
-    function diagDump() {
-        if (!root.backend || !root.backend.diag)
-            return
-        var s = "root=" + Math.round(width) + "x" + Math.round(height)
-                + "@" + Math.round(x) + "," + Math.round(y)
-                + " scale=" + scale.toFixed(3) + " op=" + opacity.toFixed(3)
-        var p = root, chain = []
-        for (var i = 0; i < 7 && p; i++) {
-            chain.push((p.objectName !== undefined && p.objectName !== "" ? p.objectName : "item")
-                       + ":" + Math.round(p.width) + "x" + Math.round(p.height)
-                       + "@" + Math.round(p.x) + "," + Math.round(p.y))
-            p = p.parent
-        }
-        s += " | parents=" + chain.join("<")
-        var bg = root.backgroundArea
-        for (var j = 0; j < bg.length; j++)
-            s += " | bg" + j + "=" + Math.round(bg[j].width) + "x" + Math.round(bg[j].height)
-                 + "@" + Math.round(bg[j].x) + "," + Math.round(bg[j].y) + ",vis=" + bg[j].visible
-        if (bg.length > 0 && bg[0].parent)
-            s += " | bgParent=" + Math.round(bg[0].parent.width) + "x" + Math.round(bg[0].parent.height)
-                 + "@" + Math.round(bg[0].parent.x) + "," + Math.round(bg[0].parent.y)
-        if (coverItem)
-            s += " | coverItem=" + Math.round(coverItem.width) + "x" + Math.round(coverItem.height)
-                 + "@" + Math.round(coverItem.x) + "," + Math.round(coverItem.y) + ",vis=" + coverItem.visible
-        if (coverSrc)
-            s += " | src=" + Math.round(coverSrc.width) + "x" + Math.round(coverSrc.height)
-                 + "@" + Math.round(coverSrc.x) + "," + Math.round(coverSrc.y)
-        if (coverMask)
-            s += " | mask=" + Math.round(coverMask.width) + "x" + Math.round(coverMask.height)
-                 + "@" + Math.round(coverMask.x) + "," + Math.round(coverMask.y)
-        if (maskEffect)
-            s += " | opmask=" + Math.round(maskEffect.width) + "x" + Math.round(maskEffect.height)
-                 + "@" + Math.round(maskEffect.x) + "," + Math.round(maskEffect.y)
-        if (scrimRect)
-            s += " | scrim=" + Math.round(scrimRect.width) + "x" + Math.round(scrimRect.height)
-                 + "@" + Math.round(scrimRect.x) + "," + Math.round(scrimRect.y)
-        s += " | content=" + Math.round(content.width) + "x" + Math.round(content.height)
-             + "@" + Math.round(content.x) + "," + Math.round(content.y)
-        s += " | cParent=" + Math.round(content.parent.width) + "x" + Math.round(content.parent.height)
-             + "@" + Math.round(content.parent.x) + "," + Math.round(content.parent.y)
-        s += " | view=" + Math.round(lyricView.width) + "x" + Math.round(lyricView.height)
-        root.backend.diag(s)
-    }
-    Timer {
-        id: diagTimer
-        interval: 700
-        repeat: false
-        onTriggered: root.diagDump()
-    }
-    onActualVisibleChanged: if (actualVisible) diagTimer.restart()
 
     // 等待提示：只在插件刚加载、还没收到任何歌词、且尚未判定「无歌词」时短暂显示；
     // 一旦判定无词就整体隐藏，等传统歌词渠道真的推来歌词再恢复。
