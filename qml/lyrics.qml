@@ -246,6 +246,76 @@ Widget {
         return s.match(re) || []
     }
 
+
+    // 灵动显隐：只看歌词渠道是否已经推来歌词。
+    // SMTC 的歌名 / 封面 / 播放状态，以及桥接用的「歌名 + 歌手」推送都不参与判定，
+    // 所以非传统渠道（例如浏览器视频）被 SMTC 识别时不会把组件"弹"出来。
+    readonly property bool shouldShow: editMode
+        || (root.autoShow && root.showable)
+    property bool actualVisible: true
+    // 已知在暂停 / 已停止：**只用于让逐行歌词动画跟着停住**（避免高亮跑偏），
+    // 与组件的显隐判断无关 —— 显隐只看歌词有无，不看播放状态。
+    readonly property bool playbackStalled: backend.playbackKnown && backend.playbackPaused
+
+    function updateVisibility() {
+        if (shouldShow) {
+            // 以动画本身作为状态判断，而不是 actualVisible：
+            // exitAnim 还没播完时 actualVisible 仍是 true，旧代码这时不会重启
+            // enterAnim，等 exitAnim 结束把 opacity 留在 0 —— 就会"可见但全透明"。
+            if (enterAnim.running)
+                return
+            actualVisible = true
+            exitAnim.stop()
+            enterAnim.restart()
+        } else {
+            if (exitAnim.running)
+                return
+            enterAnim.stop()
+            exitAnim.restart()
+        }
+    }
+    onShouldShowChanged: updateVisibility()
+
+    Component.onCompleted: {
+        if (root.backend)
+            backend.smtcGate = root.smtcUsable
+        actualVisible = shouldShow
+        diagTimer.start()
+    }
+
+    // 宽度不随显隐切 0：隐藏交给 visible，主程序通过 contentHidden 收合槽位。
+    // 之前隐藏时把宽度切成 0，恢复时再把宽度改回来，会让 FastBlur / OpacityMask
+    // 这类 shader 特效的纹理按 0 尺寸渲染，重新显示后背景错位、内容像被裁掉一截
+    // （点一下组件触发重排才恢复正常）。
+    width: implicitWidth
+    visible: actualVisible
+
+    SequentialAnimation {
+        id: enterAnim
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "opacity"; from: 0; to: 1; duration: 320; easing.type: Easing.OutCubic }
+            NumberAnimation { target: root; property: "scale"; from: 0.94; to: 1; duration: 360; easing.type: Easing.OutCubic }
+        }
+        onFinished: actualVisible = shouldShow
+    }
+    SequentialAnimation {
+        id: exitAnim
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "opacity"; from: 1; to: 0; duration: 220; easing.type: Easing.InQuad }
+            NumberAnimation { target: root; property: "scale"; from: 1; to: 0.97; duration: 240; easing.type: Easing.InQuad }
+        }
+        onFinished: actualVisible = shouldShow
+    }
+
+    // ---- 主体 ----
+    Item {
+        id: content
+        anchors.fill: parent
+        anchors.bottomMargin: root.miniMode ? -4 : -12
+        visible: root.hasLyrics
+
+        readonly property int visibleRows: root.miniMode ? 1 : 3
+        readonly property real rowH: Math.max(12, lyricView.height / visibleRows)
     // ---- 背景 ----
     // 补丁：不再把背景放进 backgroundArea（主程序 z=-1 的那层背景容器）。
     // 真机上 backgroundArea 的内容会被裁掉左边约一个 padding 宽度 —— 诊断日志显示
@@ -326,76 +396,6 @@ Widget {
             visible: root.hasSolidBg
         }
     }
-
-    // 灵动显隐：只看歌词渠道是否已经推来歌词。
-    // SMTC 的歌名 / 封面 / 播放状态，以及桥接用的「歌名 + 歌手」推送都不参与判定，
-    // 所以非传统渠道（例如浏览器视频）被 SMTC 识别时不会把组件"弹"出来。
-    readonly property bool shouldShow: editMode
-        || (root.autoShow && root.showable)
-    property bool actualVisible: true
-    // 已知在暂停 / 已停止：**只用于让逐行歌词动画跟着停住**（避免高亮跑偏），
-    // 与组件的显隐判断无关 —— 显隐只看歌词有无，不看播放状态。
-    readonly property bool playbackStalled: backend.playbackKnown && backend.playbackPaused
-
-    function updateVisibility() {
-        if (shouldShow) {
-            // 以动画本身作为状态判断，而不是 actualVisible：
-            // exitAnim 还没播完时 actualVisible 仍是 true，旧代码这时不会重启
-            // enterAnim，等 exitAnim 结束把 opacity 留在 0 —— 就会"可见但全透明"。
-            if (enterAnim.running)
-                return
-            actualVisible = true
-            exitAnim.stop()
-            enterAnim.restart()
-        } else {
-            if (exitAnim.running)
-                return
-            enterAnim.stop()
-            exitAnim.restart()
-        }
-    }
-    onShouldShowChanged: updateVisibility()
-
-    Component.onCompleted: {
-        if (root.backend)
-            backend.smtcGate = root.smtcUsable
-        actualVisible = shouldShow
-        diagTimer.start()
-    }
-
-    // 宽度不随显隐切 0：隐藏交给 visible，主程序通过 contentHidden 收合槽位。
-    // 之前隐藏时把宽度切成 0，恢复时再把宽度改回来，会让 FastBlur / OpacityMask
-    // 这类 shader 特效的纹理按 0 尺寸渲染，重新显示后背景错位、内容像被裁掉一截
-    // （点一下组件触发重排才恢复正常）。
-    width: implicitWidth
-    visible: actualVisible
-
-    SequentialAnimation {
-        id: enterAnim
-        ParallelAnimation {
-            NumberAnimation { target: root; property: "opacity"; from: 0; to: 1; duration: 320; easing.type: Easing.OutCubic }
-            NumberAnimation { target: root; property: "scale"; from: 0.94; to: 1; duration: 360; easing.type: Easing.OutCubic }
-        }
-        onFinished: actualVisible = shouldShow
-    }
-    SequentialAnimation {
-        id: exitAnim
-        ParallelAnimation {
-            NumberAnimation { target: root; property: "opacity"; from: 1; to: 0; duration: 220; easing.type: Easing.InQuad }
-            NumberAnimation { target: root; property: "scale"; from: 1; to: 0.97; duration: 240; easing.type: Easing.InQuad }
-        }
-        onFinished: actualVisible = shouldShow
-    }
-
-    // ---- 主体 ----
-    Item {
-        id: content
-        anchors.fill: parent
-        anchors.bottomMargin: root.miniMode ? -4 : -12
-        visible: root.hasLyrics
-
-        readonly property int visibleRows: root.miniMode ? 1 : 3
-        readonly property real rowH: Math.max(12, lyricView.height / visibleRows)
 
         Quick.ListView {
             id: lyricView
