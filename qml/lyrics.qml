@@ -523,20 +523,28 @@ Widget {
                 readonly property bool isTrans: cell.kind === "extra" && cell.ekind === "trans"
                 readonly property bool isNext: cell.kind === "extra" && cell.ekind === "next"
                 // 译文与当前歌词同字号；其余用副字号
-                readonly property int fs: (cell.isCur || cell.isTrans) ? root.mainSize : root.subSize
+                readonly property int baseFs: (cell.isCur || cell.isTrans) ? root.mainSize : root.subSize
                 readonly property var tokens: root.tokenize((lineText !== undefined) ? lineText : "")
                 readonly property int tokenCount: tokens.length
-                // 用 TextMetrics 按当前字号实测宽度，而不是读 tokenRow 的布局宽度：
+                // 用 TextMetrics 按「未缩放的字号」实测宽度，而不是读 tokenRow 的布局宽度：
                 // 布局宽度会滞后于字号变化（字号改了判定不动，要硬超出很多才滚动）。
-                readonly property real measuredW: textMetrics.advanceWidth
+                // 非当前句（上一句 / 下一句）超宽时按比例缩小字号，让长句也能「横向完整显示」；
+                // 当前句保持原字号并横向滚动（需求：只有主歌词滚动）。
+                // 这里用 baseW（未缩放宽度）算比例，避免和 fs 互相引用。
+                readonly property real baseW: textMetrics.advanceWidth
+                readonly property real fitScale: (!cell.isCur && cell.baseW > cell.width - 2)
+                                                 ? Math.max(0.5, (cell.width - 2) / cell.baseW) : 1
+                readonly property int fs: Math.max(6, Math.round(cell.baseFs * cell.fitScale))
+                // 实际渲染宽度 ≈ 基准宽度 × 字号比例（缩小后不能再拿未缩放的宽度判溢出）
+                readonly property real measuredW: cell.baseW * (cell.fs / Math.max(1, cell.baseFs))
                 readonly property real textW: Math.max(tokenRow.width, measuredW)
                 TextMetrics {
                     id: textMetrics
-                    font.pixelSize: cell.fs
+                    font.pixelSize: cell.baseFs
                     font.weight: Font.DemiBold
                     text: cell.tokens.join("")
                 }
-                readonly property bool overflow: cell.textW > cell.width - 0.5
+                readonly property bool overflow: cell.textW > cell.width
                 // 只有「当前句」超宽时才横向滚动；上一句 / 下一句一律静止
                 readonly property bool canScroll: cell.isCur && cell.overflow
                 readonly property real scrollTarget: cell.width - cell.textW
