@@ -256,25 +256,52 @@ _SCRIPT_RES = {
 }
 
 
+# 「差异书写系统」至少占这一行字符数的比例，才认定为译文。
+# 例：「我听着耳机中jay的音乐」里 latin 只占 ~25%，它跟纯中文的下一句是同一语种，
+# 不能因为夹了个英文单词就判成译文（判成译文会套上当前句的亮度/字号，看起来像被高亮）。
+_TRANS_MIN_RATIO = 0.3
+
+
+def _script_counts(s):
+    return {name: len(rx.findall(s)) for name, rx in _SCRIPT_RES.items()}
+
+
 def _script_set(s):
     """这段文字里出现了哪些书写系统（han / kana / hangul / latin）。"""
-    return {name for name, rx in _SCRIPT_RES.items() if rx.search(s)}
+    return {name for name, v in _script_counts(s).items() if v > 0}
 
 
 def _is_translation(lyric, extra):
     """推测 extra 是当前句的译文还是下一句。
 
     发送端 extra 是二选一（有翻译给翻译，否则给下一句），没有显式标记。
-    判据按「书写系统集合」而不是「有没有中文」：
-      - 集合不同 → 译文。覆盖：英文歌词 + 中文译文、韩文/日文歌词 + 中文译文、
-        中英混排歌词 + 英文/中文译文（旧实现里「韩文或中英混排」会和中文译文
-        一样被判成"有中文"，从而误判成下一句）；
-      - 集合相同（如同为中文、同为英文、同为同一种混排）→ 下一句。
-        猜错的下一句会在它真的作为当前句出现时由 reclassify_extra 回溯纠正。
+    判据：两行的「书写系统差异」要**足够显著**才算译文：
+      - 一侧出现了另一侧完全没有的书写系统（如英文歌词 vs 中文译文、
+        韩文/英文混排 vs 中文译文），且它占该行字符数的比例 >= 30%；
+      - 否则判为下一句：中英混排里偶尔夹一个英文词（如「我听着耳机中jay的音乐」）
+        仍然是同一语种，判成译文会被套上当前句的亮度与字号，看起来像"下一句被高亮了"。
+    猜错的下一句会在它真的作为当前句出现时由 reclassify_extra 回溯纠正。
     """
     if not lyric or not extra:
         return False
-    return _script_set(lyric) != _script_set(extra)
+    lc = _script_counts(lyric)
+    ec = _script_counts(extra)
+    lset = {k for k, v in lc.items() if v > 0}
+    eset = {k for k, v in ec.items() if v > 0}
+    if lset == eset:
+        return False
+
+    def ratio(cnt, names):
+        total = sum(cnt.values()) or 1
+        return sum(cnt[n] for n in names) / total
+
+    only_l = lset - eset
+    only_e = eset - lset
+    if only_l and ratio(lc, only_l) >= _TRANS_MIN_RATIO:
+        return True
+    if only_e and ratio(ec, only_e) >= _TRANS_MIN_RATIO:
+        return True
+    return False
 
 
 def _first(payload, *keys):
